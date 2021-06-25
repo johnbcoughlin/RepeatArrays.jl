@@ -56,6 +56,14 @@ using Test
             @test collect(a .* c) == collect(a) .* collect(c)
         end
     end
+
+    @testset "Nested" begin
+        a = myrepeat([1, 2], inner=(10,))
+        b = myrepeat(a, outer=(2, 3))
+        @test collect(b) == repeat(repeat([1, 2], inner=10), outer=(2, 3))
+        c = myrepeat(b, inner=(4, 5))
+        @test collect(c) == repeat(collect(b), inner=(4, 5))
+    end
 end
 
 nothing

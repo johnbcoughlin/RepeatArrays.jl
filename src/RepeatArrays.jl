@@ -4,8 +4,8 @@ export myrepeat
 
 import Base.size
 
-struct RepeatArray{T, N}
-    A::Array{T, N}
+struct RepeatArray{T, InnerType}
+    A::InnerType
 
     # Array of tuples (dim, inner, outer), giving a number of inner and outer repetitions
     # and the dimension to repeat along.
@@ -24,11 +24,21 @@ struct RepeatArray{T, N}
     maxdim::Int
 end
 
-Base.eltype(R::RepeatArray{T, N}) where {T, N} = T
+Base.eltype(R::RepeatArray{T, InnerType}) where {T, InnerType} = T
 
-Base.similar(R::RepeatArray{T, N}, eltype) where {T, N} = RepeatArray(similar(R.A, eltype), copy(R.repetitions), R.maxdim)
+Base.similar(R::RepeatArray{T, InnerType}, eltype) where {T, InnerType} = RepeatArray(similar(R.A, eltype), copy(R.repetitions), R.maxdim)
+
+myrepeat(R::RepeatArray{T, InnerType}; inner=[], outer=[], dims=nothing) where {T, InnerType} = begin
+    repetitions, maxdim = compute_repetitions(ndims=length(size(R)), inner=inner, outer=outer, dims=dims)
+    RepeatArray{T, typeof(R)}(R, repetitions, maxdim)
+end
 
 myrepeat(A::Array{T, N}; inner=[], outer=[], dims=nothing) where {T, N} = begin
+    repetitions, maxdim = compute_repetitions(ndims=N, inner=inner, outer=outer, dims=dims)
+    RepeatArray{T, typeof(A)}(A, repetitions, maxdim)
+end
+
+compute_repetitions(; ndims::Int, inner=[], outer=[], dims=nothing) = begin
     inner = [inner...]
     outer = [outer...]
     if !isnothing(dims)
@@ -50,7 +60,7 @@ myrepeat(A::Array{T, N}; inner=[], outer=[], dims=nothing) where {T, N} = begin
         dims
     end
 
-    maxdim = max(maximum(dims), length(size(A)))
+    maxdim = max(maximum(dims), ndims)
     repetitions = Tuple{Int, Int, Int}[]
 
     for d in 1:maxdim
@@ -63,10 +73,10 @@ myrepeat(A::Array{T, N}; inner=[], outer=[], dims=nothing) where {T, N} = begin
         end
     end
 
-    RepeatArray(A, repetitions, maxdim)
+    [repetitions, maxdim]
 end
 
-size(R::RepeatArray{T, N}) where {T, N} = begin
+size(R::RepeatArray{T, InnerType}) where {T, InnerType} = begin
     result = Int[]
     for (dim, inner, outer) in R.repetitions
         if dim <= length(size(R.A))
@@ -78,7 +88,7 @@ size(R::RepeatArray{T, N}) where {T, N} = begin
     tuple(result...)
 end
 
-size(R::RepeatArray{T, N}, i::Int) where {T, N} = begin
+size(R::RepeatArray{T, InnerType}, i::Int) where {T, InnerType} = begin
     s = size(R)
     if i > length(s)
         return 1
@@ -87,7 +97,7 @@ size(R::RepeatArray{T, N}, i::Int) where {T, N} = begin
     end
 end
 
-get_outer_reps(R::RepeatArray{T, N}, dim::Int; broadcasting_to=nothing) where {T, N} = begin
+get_outer_reps(R::RepeatArray{T, InnerType}, dim::Int; broadcasting_to=nothing) where {T, InnerType} = begin
     if dim > length(R.repetitions)
         if isnothing(broadcasting_to)
             return 1
@@ -99,7 +109,7 @@ get_outer_reps(R::RepeatArray{T, N}, dim::Int; broadcasting_to=nothing) where {T
     end
 end
 
-get_inner_reps(R::RepeatArray{T, N}, dim::Int) where {T, N} = begin
+get_inner_reps(R::RepeatArray{T, InnerType}, dim::Int) where {T, InnerType} = begin
     if dim > length(R.repetitions)
         return 1
     else
@@ -107,16 +117,18 @@ get_inner_reps(R::RepeatArray{T, N}, dim::Int) where {T, N} = begin
     end
 end
 
-Base.collect(R::RepeatArray{T, N}) where {T, N} = begin
-    result = Array{T}(undef, size(R)...)
+Base.collect(R::RepeatArray{T, Array{T, N}}) where {T, N} = collect_by_repeating(R, R.A)
 
-    missing_dims = length(size(R)) - length(size(R.A))
-    dims = [size(R.A)...]
+Base.collect(R::RepeatArray{T, RepeatArray{T, InnerType}}) where {T, InnerType} = collect_by_repeating(R, collect(R.A))
+
+collect_by_repeating(R::RepeatArray{T, InnerType}, A::Array{T, N}) where {T, InnerType, N} = begin
+    missing_dims = length(size(R)) - length(size(A))
+    dims = [size(A)...]
     append!(dims, Array{Int}(ones(missing_dims)))
 
-    A = reshape(R.A, dims...)
+    reshaped = reshape(A, dims...)
 
-    repeat(A, inner=[rep[2] for rep in R.repetitions], outer=[rep[3] for rep in R.repetitions])
+    repeat(reshaped, inner=[rep[2] for rep in R.repetitions], outer=[rep[3] for rep in R.repetitions])
 end
 
 ###########
@@ -137,15 +149,15 @@ Base.BroadcastStyle(::RepeatStyle, ::Broadcast.DefaultArrayStyle{N}) where {N} =
 # Unary operators
 #########
 
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), x::Number, R::RepeatArray{T, N}) where {T, N} = RepeatArray(x .* R.A, R.repetitions, R.maxdim)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T, N}, x::Number) where {T, N} = RepeatArray(R.A .* x, R.repetitions, R.maxdim)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), x::Number, R::RepeatArray{T, InnerType}) where {T, InnerType} = RepeatArray(x .* R.A, R.repetitions, R.maxdim)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T, InnerType}, x::Number) where {T, InnerType} = RepeatArray(R.A .* x, R.repetitions, R.maxdim)
 
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), x::Number, R::RepeatArray{T, N}) where {T, N} = RepeatArray(R.A ./ x, R.repetitions, R.maxdim)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T, N}, x::Number) where {T, N} = RepeatArray(x ./ R.A, R.repetitions, R.maxdim)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), x::Number, R::RepeatArray{T, InnerType}) where {T, InnerType} = RepeatArray(R.A ./ x, R.repetitions, R.maxdim)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T, InnerType}, x::Number) where {T, InnerType} = RepeatArray(x ./ R.A, R.repetitions, R.maxdim)
 
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(Base.literal_pow), ::Base.RefValue{typeof(^)}, R::RepeatArray{T, N}, v::Base.RefValue{Val{x}}) where {T, N, x} =
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(Base.literal_pow), ::Base.RefValue{typeof(^)}, R::RepeatArray{T, InnerType}, v::Base.RefValue{Val{x}}) where {T, InnerType, x} =
     RepeatArray(Base.literal_pow.(^, R.A, v), R.repetitions, R.maxdim)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(^), R::RepeatArray{T, N}, x::Number) where {T, N} = RepeatArray(R.A .^ x, R.repetitions, R.maxdim)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(^), R::RepeatArray{T, InnerType}, x::Number) where {T, InnerType} = RepeatArray(R.A .^ x, R.repetitions, R.maxdim)
 
 #########
 # Broadcasting between RepeatArrays
@@ -160,7 +172,7 @@ struct BinaryBroadcastPlan
     arg2Elongations::Array{Int}
 end
 
-planBinaryBroadcast(R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = begin
+planBinaryBroadcast(R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = begin
     output_size = Base.Broadcast._bcs(size(R), size(S))
 
     outer_reps = Int[]
@@ -197,7 +209,7 @@ planBinaryBroadcast(R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N
     BinaryBroadcastPlan(outer_reps, inner_reps, R_expansions, R_elongations, S_expansions, S_elongations)
 end
 
-doBinaryBroadcast(f::Any, R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = begin
+doBinaryBroadcast(f::Any, R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = begin
     plan = planBinaryBroadcast(R, S)
     arg1 = repeat(R.A, inner=plan.arg1Expansions, outer=plan.arg1Elongations)
     arg2 = repeat(S.A, inner=plan.arg2Expansions, outer=plan.arg2Elongations)
@@ -205,9 +217,9 @@ doBinaryBroadcast(f::Any, R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where 
     myrepeat(A, inner=plan.inner_reps, outer=plan.outer_reps)
 end
 
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(+), R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = doBinaryBroadcast(+, R, S)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = doBinaryBroadcast(-, R, S)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = doBinaryBroadcast(*, R, S)
-Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T1, N1}, S::RepeatArray{T2, N2}) where {T1, N1, T2, N2} = doBinaryBroadcast(/, R, S)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(+), R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = doBinaryBroadcast(+, R, S)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = doBinaryBroadcast(-, R, S)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = doBinaryBroadcast(*, R, S)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T1, InnerType1}, S::RepeatArray{T2, InnerType2}) where {T1, InnerType1, T2, InnerType2} = doBinaryBroadcast(/, R, S)
 
 end
