@@ -60,9 +60,15 @@ using Test
     @testset "Nested" begin
         a = myrepeat([1, 2], inner=(10,))
         b = myrepeat(a, outer=(2, 3))
-        @test collect(b) == repeat(repeat([1, 2], inner=10), outer=(2, 3))
+        @test collect(b) == repeat(repeat([1, 2], inner=10), outer=(2, 3)) == repeat(collect(a), outer=(2, 3))
         c = myrepeat(b, inner=(4, 5))
         @test collect(c) == repeat(collect(b), inner=(4, 5))
+
+        @testset "Nested broadcasting" begin
+            d = myrepeat([4, 5], outer=(5,))
+            e = myrepeat(d, inner=(4, 3))
+            @test collect(e .+ b) == collect(e) .+ collect(b)
+        end
     end
 end
 
