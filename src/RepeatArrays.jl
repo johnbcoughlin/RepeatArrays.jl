@@ -134,7 +134,13 @@ get_inner_reps(R::RepeatArray{T}, dim::Int) where {T} = begin
     end
 end
 
-Base.collect(R::RepeatArray{T}) where {T} = collect_by_repeating(R, R.A)
+Base.collect(R::RepeatArray{T}) where {T} = begin
+    if size(R) == size(R.A)
+        return R.A
+    else
+        return collect_by_repeating(R, R.A)
+    end
+end
 
 collect_by_repeating(R::RepeatArray{T}, A::Array{T, N}) where {T, N} = begin
     missing_dims = length(size(R)) - length(size(A))
