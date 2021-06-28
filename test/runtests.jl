@@ -59,6 +59,14 @@ using Test
             @test collect(b .* c) == collect(b) .* collect(c)
             @test collect(a .* c) == collect(a) .* collect(c)
         end
+
+        @testset "With normal arrays" begin
+            a = myrepeat([1, 2], outer=(10,))
+            @test collect(a .* Array(1:20)) == collect(a) .* Array(1:20)
+            @test collect(a .* Array(1:20)') == collect(a) .* Array(1:20)'
+            @test collect(Array(1:20) .* a) == collect(a) .* Array(1:20)
+            @test collect(Array(1:20)' .* a) == collect(a) .* Array(1:20)'
+        end
     end
 
     @testset "Nested" begin

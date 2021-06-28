@@ -156,9 +156,7 @@ Base.BroadcastStyle(::Type{<:RepeatArray}) = RepeatStyle()
 
 Base.Broadcast.broadcastable(R::RepeatArray) = R
 
-Base.BroadcastStyle(::RepeatStyle, ::Broadcast.DefaultArrayStyle{0}) = RepeatStyle()
-
-Base.BroadcastStyle(::RepeatStyle, ::Broadcast.DefaultArrayStyle{N}) where {N} = Broadcast.DefaultArrayStyle{N}()
+Base.BroadcastStyle(::RepeatStyle, ::Broadcast.DefaultArrayStyle{N}) where {N} = RepeatStyle()
 
 #########
 # Unary operators
@@ -173,6 +171,64 @@ Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T}, x::Num
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(Base.literal_pow), ::Base.RefValue{typeof(^)}, R::RepeatArray{T}, v::Base.RefValue{Val{x}}) where {T, InnerType, x} =
     RepeatArray(Base.literal_pow.(^, R.A, v), R.repetitions, R.maxdim)
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(^), R::RepeatArray{T}, x::Number) where {T} = RepeatArray(R.A .^ x, R.repetitions, R.maxdim)
+
+binaryBroadcast(f::Any, R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = begin
+    output_size = Base.Broadcast._bcs(size(R), size(A))
+    plan = planAbstractArrayBroadcast(R, A)
+
+    intermediate = RepeatArray(R.A, plan.pre_application_reps, length(output_size))
+
+    applied = broadcast(f, collect(intermediate), A)
+    return RepeatArray(applied, plan.post_application_reps, length(output_size))
+end
+
+binaryBroadcast(f::Any, A::AbstractArray{T1}, R::RepeatArray{T2}) where {T1, T2} = binaryBroadcast((r, a) -> f(a, r), R, A)
+
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(+), R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = binaryBroadcast(+, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = binaryBroadcast(-, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = binaryBroadcast(*, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = binaryBroadcast(/, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(+), A::AbstractArray{T1}, R::RepeatArray{T2}) where {T1, T2} = binaryBroadcast(+, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), A::AbstractArray{T1}, R::RepeatArray{T2}) where {T1, T2} = binaryBroadcast(-, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), A::AbstractArray{T1}, R::RepeatArray{T2}) where {T1, T2} = binaryBroadcast(*, R, A)
+Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), A::AbstractArray{T1}, R::RepeatArray{T2}) where {T1, T2} = binaryBroadcast(/, R, A)
+
+struct AbstractArrayBroadcastPlan
+    pre_application_reps::Array{Tuple{Int, Int, Int}}
+    post_application_reps::Array{Tuple{Int, Int, Int}}
+end
+
+planAbstractArrayBroadcast(R::RepeatArray{T1}, A::AbstractArray{T2}) where {T1, T2} = begin
+    output_size = Base.Broadcast._bcs(size(R), size(A))
+
+    pre_application_reps = Tuple{Int, Int, Int}[]
+    post_application_reps = Tuple{Int, Int, Int}[]
+
+    for i in 1:length(output_size)
+        if size(R, i) == 1 && size(A, i) == 1
+            push!(pre_application_reps, (i, 1, 1))
+            push!(post_application_reps, (i, 1, 1))
+        end
+        # Need to repeat this dimension before application of f
+        if size(R, i) == 1 && size(A, i) > 1
+            push!(pre_application_reps, (i, 1, size(A, i)))
+            push!(post_application_reps, (i, 1, 1))
+        end
+        # Can delay repetition of this dim until after application of f
+        if size(R, i) > 1 && size(A, i) == 1
+            push!(pre_application_reps, (i, 1, 1))
+            # There's no risk of this array access failing because R must have a repetition
+            # specification for every dimension wider than a singleton
+            push!(post_application_reps, R.repetitions[i])
+        end
+        if size(R, i) > 1 && size(A, i) > 1
+            push!(pre_application_reps, R.repetitions[i])
+            push!(post_application_reps, (i, 1, 1))
+        end
+    end
+
+    return AbstractArrayBroadcastPlan(pre_application_reps, post_application_reps)
+end
 
 #########
 # Broadcasting between RepeatArrays
@@ -236,10 +292,5 @@ Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(+), R::RepeatArray{T1}, S::Re
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), R::RepeatArray{T1}, S::RepeatArray{T2}) where {T1, T2} = doBinaryBroadcast(-, R, S)
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T1}, S::RepeatArray{T2}) where {T1, T2} = doBinaryBroadcast(*, R, S)
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T1}, S::RepeatArray{T2}) where {T1, T2} = doBinaryBroadcast(/, R, S)
-
-Base.Broadcast.broadcasted(::RepeatStyle, f::Any, R::RepeatArray{T1}, A::Array{T2, N}) where {T1, T2, N} =
-    Base.Broadcast.broadcasted(RepeatStyle(), f, R, myrepeat(A))
-Base.Broadcast.broadcasted(::RepeatStyle, f::Any, A::Array{T2, N}, R::RepeatArray{T1}) where {T1, T2, N} =
-    Base.Broadcast.broadcasted(RepeatStyle(), f, R, myrepeat(A))
 
 end
