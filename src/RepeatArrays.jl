@@ -293,4 +293,11 @@ Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(-), R::RepeatArray{T1}, S::Re
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(*), R::RepeatArray{T1}, S::RepeatArray{T2}) where {T1, T2} = doBinaryBroadcast(*, R, S)
 Base.Broadcast.broadcasted(::RepeatStyle, ::typeof(/), R::RepeatArray{T1}, S::RepeatArray{T2}) where {T1, T2} = doBinaryBroadcast(/, R, S)
 
+###########
+# Linear Algebra
+###########
+
+Base.:*(R::RepeatArray{T1}, S::AbstractArray{T2, N}) where {T1, T2, N} = collect(R) * S
+Base.:*(S::AbstractArray{T2, N}, R::RepeatArray{T1}) where {T1, T2, N} = S * collect(R)
+
 end
