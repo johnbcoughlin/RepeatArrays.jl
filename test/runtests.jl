@@ -11,6 +11,10 @@ using Test
         @test collect(myrepeat(a, inner=(2,))) == repeat(a, inner=(2, 1))
         @test collect(myrepeat(a, inner=(1, 2))) == repeat(a, inner=(1, 2))
 
+        @testset "Inner rep of singleton treated as outer rep" begin
+            r = myrepeat([1, 2], inner=(1, 3))
+            @test r.repetitions[2] == (2, 1, 3)
+        end
     end
 
     @testset "Outer repetition" begin

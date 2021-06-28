@@ -29,7 +29,7 @@ Base.eltype(R::RepeatArray{T}) where {T} = T
 Base.similar(R::RepeatArray{T}, eltype) where {T} = RepeatArray(similar(R.A, eltype), copy(R.repetitions), R.maxdim)
 
 myrepeat(R::RepeatArray{T}; inner=[], outer=[], dims=nothing) where {T} = begin
-    repetitions, maxdim = compute_repetitions(ndims=length(size(R)), inner=inner, outer=outer, dims=dims)
+    repetitions, maxdim = compute_repetitions(basearray=R, ndims=length(size(R)), inner=inner, outer=outer, dims=dims)
     fused_repetitions = []
     for i in 1:max(R.maxdim, maxdim)
         repspec = get(repetitions, i, (i, 1, 1))
@@ -41,14 +41,14 @@ myrepeat(R::RepeatArray{T}; inner=[], outer=[], dims=nothing) where {T} = begin
 end
 
 myrepeat(A::Array{T, N}; inner=[], outer=[], dims=nothing) where {T, N} = begin
-    repetitions, maxdim = compute_repetitions(ndims=N, inner=inner, outer=outer, dims=dims)
+    repetitions, maxdim = compute_repetitions(basearray=A, ndims=N, inner=inner, outer=outer, dims=dims)
     RepeatArray{T}(A, repetitions, maxdim)
 end
 
 # Cheat for now until we just override repeat
 Base.repeat(R::RepeatArray{T}; inner=[], outer=[]) where {T} = myrepeat(R, inner=inner, outer=outer)
 
-compute_repetitions(; ndims::Int, inner=[], outer=[], dims=nothing) = begin
+compute_repetitions(; basearray, ndims::Int, inner=[], outer=[], dims=nothing) = begin
     inner = [inner...]
     outer = [outer...]
     if !isnothing(dims)
@@ -77,6 +77,13 @@ compute_repetitions(; ndims::Int, inner=[], outer=[], dims=nothing) = begin
         if d in dims
             inner_rep = inner[findfirst(x -> x == d, dims)]
             outer_rep = outer[findfirst(x -> x == d, dims)]
+
+            # Make sure we treat "inner" repetitions of a singleton dimension as outer,
+            # in order to take better advantage of repetition structure during broadcasting.
+            if size(basearray, d) == 1
+                outer_rep *= inner_rep
+                inner_rep = 1
+            end
             push!(repetitions, (d, inner_rep, outer_rep))
         else
             push!(repetitions, (d, 1, 1))
